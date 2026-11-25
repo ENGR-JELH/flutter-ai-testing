@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "marionette": {
+      "command": "marionette_mcp",
+      "args": []
+    },
+    "maestro": {
+      "command": "maestro",
+      "args": ["mcp", "--no-viewer"]
+    }
+  }
+}

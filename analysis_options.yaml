@@ -1,0 +1,7 @@
+analyzer:
+  exclude:
+    # Starting files with placeholders, filled in by each app.
+    - templates/**
+    # Its own package, analyzed on its own.
+    - example/**
+    - build/**
