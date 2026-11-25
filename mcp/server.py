@@ -30,6 +30,8 @@ import time
 VERSION = "0.1.0"
 # Longest wait for one Marionette call (AI_TESTING_CALL_TIMEOUT overrides).
 CALL_TIMEOUT = float(os.environ.get("AI_TESTING_CALL_TIMEOUT", "45"))
+# Longest wait for a loading indicator after an action (AI_TESTING_LOADING_WAIT).
+LOADING_WAIT = float(os.environ.get("AI_TESTING_LOADING_WAIT", "15"))
 HERE = pathlib.Path(__file__).resolve().parent
 
 INSTRUCTIONS = """\
@@ -42,7 +44,7 @@ Tools to test a Flutter app on Android and iOS the way a person does.
    targeting controls by test key (see the app's docs/test-keys.md). Read the
    screen with get_interactive_elements.
 3. Each action's reply ends with "after: {...}", the where_am_i answer once the
-   screen has settled: page stack, *_screen keys on screen (bottom page
+   screen has settled and loading has finished (up to 15 s): page stack, *_screen keys on screen (bottom page
    first), open dialogs, loading, signed in. Check it before the next step.
    While loading is true, call where_am_i again until it is false.
 
@@ -513,6 +515,12 @@ def call_tool(name, args):
         # action led, so the next step never races a page transition.
         try:
             after = t_where_am_i({"device": session.device})
+            # Also wait out a loading indicator, up to LOADING_WAIT, so the next
+            # step finds the controls the page shows once loaded.
+            deadline = time.time() + LOADING_WAIT
+            while json.loads(after).get("loading") and time.time() < deadline:
+                time.sleep(1)
+                after = t_where_am_i({"device": session.device})
             result = dict(result, content=list(result.get("content", [])) +
                           [{"type": "text", "text": "after: " + after}])
         except ToolError:
