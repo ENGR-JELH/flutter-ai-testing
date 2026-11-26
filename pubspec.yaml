@@ -1,7 +1,12 @@
 name: flutter_ai_testing
-description: App tools that let an AI agent test a Flutter app through Marionette, plus key checks and a launch script.
-version: 0.1.0
-publish_to: none
+description: >-
+  Let AI agents (Claude Code, Codex, Cursor, Copilot) test a Flutter app on
+  Android and iOS through an MCP server, the way a person does: tap, type,
+  scroll, and check which page is open.
+version: 0.2.0
+repository: https://github.com/ENGR-JELH/flutter-ai-testing
+issue_tracker: https://github.com/ENGR-JELH/flutter-ai-testing/issues
+topics: [testing, mcp, ai, automation, marionette]
 
 environment:
   sdk: ^3.8.0
@@ -10,9 +15,17 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # Must match the marionette_mcp version installed on the machine.
+  # Kept on the same minor version: the MCP server runs marionette_mcp from this package's
+  # own dependencies, so it always matches the binding in the app.
   marionette_flutter: ^0.7.0
+  marionette_mcp: ^0.7.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+executables:
+  mcp: mcp
+  init: init
+  run: run
+  keys: keys

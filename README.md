@@ -1,104 +1,138 @@
-# flutter-ai-testing
+# flutter_ai_testing
 
-An **MCP server** that lets any AI agent (Claude Code, Codex, Cursor, Copilot, or any MCP
-client) test a Flutter app the way a person does, on Android and iOS: start the app on a
-device, read the screen, tap and type by test key, confirm which page is open, and report.
-Built on [Marionette](https://pub.dev/packages/marionette_mcp) for the app and
-[Maestro](https://maestro.mobile.dev) for native UI.
+Let any AI agent (Claude Code, Codex, Cursor, Copilot, or any MCP client) test your Flutter app
+the way a person does, on Android and iOS: start the app on a device, read the screen, tap and
+type by test key, confirm which page is open after every step, and report.
+
+One dev dependency, no changes to your app's code: the tools live in a debug-only entrypoint
+next to `lib/`. Built on [Marionette](https://pub.dev/packages/marionette_flutter).
+
+**Full guide:** [doc/guide.md](doc/guide.md): setup, keys, configuration, running tests,
+writing test cases, tool reference and troubleshooting.
+
+## Set up
+
+```sh
+flutter pub add dev:flutter_ai_testing
+dart run flutter_ai_testing:init
+```
+
+`init` creates only what is missing and never touches `lib/`:
+
+| File | What it is |
+|---|---|
+| `marionette/main.dart` | Debug-only entrypoint: `runWithAiTesting(app.main)`. |
+| `ai-testing.conf` | App id (read from Android), OS permissions to grant, optional test-host check, key settings. |
+| `.mcp.json` | Registers the server: `dart run flutter_ai_testing:mcp`. |
+| `docs/AUTOMATION-TESTING.md`, `test_cases/README.md` | A testing guide and test-case format to fill in. |
+| `.gitignore` | Adds `.marionette/` (connect addresses and run logs). |
+
+Then give every page root a key ending in `_screen` (`ValueKey('login_screen')`) and key the
+controls tests use. Restart your agent and ask it to "list devices and start the app".
 
 ## The MCP server
-
-`mcp/server.py` (installed into apps as `scripts/ai-testing/mcp_server.py`). Python standard
-library only. It runs one `marionette_mcp` per device behind the scenes.
 
 | Tool | What it does |
 |---|---|
 | `list_devices` | Android and iOS devices, emulators and simulators. |
-| `start_app(app_dir, device)` | Builds, installs, grants OS permissions, launches the Marionette entrypoint and connects. |
-| `attach(app_dir, device)` | Connects to an app already started with `marionette-run.sh`. |
+| `start_app(device)` | Builds, installs, grants OS permissions, launches `marionette/main.dart` and connects. |
+| `attach(device)` | Connects to an app you started with `dart run flutter_ai_testing:run <device>`. |
 | `app_status`, `stop_app` | State of each app (starting, running, exited, a known problem). Never returns log text. |
 | `where_am_i` | Page stack, `*_screen` keys on screen, open dialogs, loading, signed in, app facts. |
-| `check_keys`, `key_index` | The key checks. |
-| `tap`, `enter_text`, `scroll_to`, `swipe`, `press_back_button`, `get_interactive_elements`, `take_screenshots`, `hot_restart`, `call_custom_extension`, ... | Marionette's own tools, each with an optional `device`, so several devices can be driven side by side. `connect` and `get_logs` are not exposed. |
+| `check_keys`, `key_index` | Key checks and the key index (`docs/test-keys.md`). |
+| `tap`, `enter_text`, `scroll_to`, `swipe`, `press_back_button`, `get_interactive_elements`, `take_screenshots`, `hot_restart`, `call_custom_extension`, ... | Marionette's tools, each with an optional `device`, so several devices run side by side. |
 
-A call that gets no answer within 45 s (`AI_TESTING_CALL_TIMEOUT`) fails with a hint instead
-of hanging: an app in the background draws no frames.
+Every action's reply ends with `after: {...}`: where the action led once the screen settled and
+loading finished (up to 15 s, `AI_TESTING_LOADING_WAIT`). A call that gets no answer in 45 s
+(`AI_TESTING_CALL_TIMEOUT`) fails with a hint instead of hanging. The server sends its rules
+as MCP `instructions` (normal path first, no personal data, check every step).
 
-### Register it
+### Other clients
 
-In an app with the kit installed, the project's `.mcp.json` (added by `install.sh`) already
-registers `python3 scripts/ai-testing/mcp_server.py`, which Claude Code picks up. For other
-clients, or for every project on your machine, point them at the same file:
+`init` writes `.mcp.json`, which Claude Code and Cursor (`.cursor/mcp.json`, same shape) read.
 
 | Client | How |
 |---|---|
-| Claude Code (all projects) | `claude mcp add --scope user flutter-ai-testing -- python3 /path/to/flutter-ai-testing/mcp/server.py` |
-| Codex | `~/.codex/config.toml`: `[mcp_servers.flutter-ai-testing]` `command = "python3"` `args = ["/path/to/mcp/server.py"]` |
-| Cursor | `.cursor/mcp.json`: same shape as `.mcp.json` |
-| VS Code / Copilot | `.vscode/mcp.json`: `{"servers": {"flutter-ai-testing": {"command": "python3", "args": ["scripts/ai-testing/mcp_server.py"]}}}` |
+| Codex | `~/.codex/config.toml`: `[mcp_servers.flutter-ai-testing]` `command = "dart"` `args = ["run", "flutter_ai_testing:mcp"]` (run from the app folder) |
+| VS Code / Copilot | `.vscode/mcp.json`: `{"servers": {"flutter-ai-testing": {"command": "dart", "args": ["run", "flutter_ai_testing:mcp"]}}}` |
 
-The server sends its usage rules as MCP `instructions` (normal path first, no personal data,
-`where_am_i` after every step), so a client that shows them needs no extra prompt.
+## Configure
 
-## What you get
+Without a config the tools already report the `*_screen` keys on screen, dialogs and loading.
+Add a config for page names, sign-in state and shortcuts:
 
-| Piece | What it does |
-|---|---|
-| `lib/flutter_ai_testing.dart` | Agent tools registered in the app: `<ns>.whereAmI` (page stack, `*_screen` keys on screen, open dialogs, loading, signed in, app facts), `<ns>.setupSignedOut` (test setup), and `uiOnly…` shortcuts for checking one page's layout. |
-| `scripts/marionette-run.sh` | Starts the app through its Marionette entrypoint, saves the connect address to `.marionette/<device>.uri`, grants OS permissions (Android after install, iOS simulator before launch), and refuses a compile-time host that isn't a test host. |
-| `scripts/check_test_keys.py` | Fails on keys that look like contact data; warns on keys repeated in one file. |
-| `scripts/gen_test_key_index.py` | Writes `docs/test-keys.md`: every key, page by page, with the widget, label and where it navigates. |
-| `mcp/server.py` | The MCP server above. |
-| `tools/marionette_cli.py` | Command-line Marionette client: `where`, a list of tool calls, `list`. |
-| `tools/vmeval.py` | Reads one value from the running debug app (for diagnosing state the screen doesn't show). |
-| `templates/` | Starting files: `ai-testing.conf`, Marionette entrypoint, app tools, widget config, MCP config, testing guide, test-case README. |
-| `example/` | A small app with everything installed and filled in. |
+```dart
+import 'package:flutter_ai_testing/flutter_ai_testing.dart';
+import 'package:my_app/main.dart' as app;
 
-## Install into an app
-
-```sh
-bash install.sh /path/to/app            # or --scripts-dir scripts/ai --marionette-dir marionette
-cd /path/to/app
-flutter pub add --dev 'marionette_flutter:^0.7.0'
-dart pub global activate marionette_mcp 0.7.0   # once per machine, same version
+void main() => runWithAiTesting(
+      app.main,
+      config: AiTestingConfig(
+        namespace: 'myapp',
+        routeStack: () => GoRouterTools.stack(app.router),     // go_router; any router works
+        location: () => GoRouterTools.location(app.router),
+        isSignedIn: () => app.session.isSignedIn,
+        appState: () => {'tab': app.currentTab},                // non-personal facts only
+        signOut: () => app.session.signOut(),                   // enables setupSignedOut
+        uiOnlyRoutes: const ['login', 'settings'],
+        openRoute: (name, {required replace}) =>
+            GoRouterTools.open(app.router, name, replace: replace),
+      ),
+      // Teach Marionette custom buttons and fields it doesn't recognise:
+      marionette: MarionetteConfiguration(
+        isInteractiveElement: (e) => e.widget is AppButton,
+      ),
+    );
 ```
 
-Then:
+| Setting | For |
+|---|---|
+| `namespace` | Tool prefix: `myapp.whereAmI`, `myapp.setupSignedOut`, `myapp.uiOnlyOpenRoute`, `myapp.uiOnlyOpenScreen`. |
+| `routeStack`, `location` | Page names in `where_am_i`. |
+| `isSignedIn`, `signOut` | Signed-in state, and the `setupSignedOut` test-setup tool. |
+| `appState` | Extra facts, such as the selected tab. |
+| `uiOnlyRoutes` + `openRoute`, `uiOnlyScreens` | UI-only shortcuts to open a page directly. |
+| `loadingWidgetTypes` | Widget types that mean "still loading" (default: the stock spinners). |
 
-1. Fill in `ai-testing.conf` (app id, test host check, permissions, key settings).
-2. Fill in `marionette/main.dart` (the app's start-up function) and `marionette/app_tools.dart`
-   (namespace, route stack, sign-in check, sign-out, shortcut routes and screens).
-3. List the app's custom controls in `marionette/marionette_config.dart`.
-4. Key every page root (`<area>_<page>_screen`) and every control a test uses.
-5. `python3 scripts/ai-testing/check_test_keys.py && python3 scripts/ai-testing/gen_test_key_index.py`
-6. Write the page map in `docs/AUTOMATION-TESTING.md` and the cases in `test_cases/`.
-7. `bash scripts/ai-testing/marionette-run.sh <device-id>` and ask the agent to run a case.
+`ai-testing.conf` settings: `APP_ID`, `TARGET`, `ANDROID_PERMISSIONS`, `IOS_PERMISSIONS`,
+`FLUTTER_VERSION`, `DEFINE_NAME` / `DEFINE_DEFAULT` / `DEFINE_MUST_CONTAIN` (a `--dart-define`
+with a safety check, so tests can't run against a production host), and the `KEYS_*` settings
+for the key index. The template written by `init` explains each one.
 
-The app gets **copies**, not a package dependency, so its CI and teammates never need access
-to this repository. `install.sh` always refreshes the copies (`marionette/ai_testing.dart`,
-`scripts/ai-testing/`) and never overwrites the files the app filled in. Don't edit the copies
-in the app: change them here, then run `install.sh` again.
+## Commands
+
+```sh
+dart run flutter_ai_testing:init                  # set up an app
+dart run flutter_ai_testing:mcp                   # the MCP server (your agent starts it)
+dart run flutter_ai_testing:run <device-id>       # start the app yourself; then `attach`
+dart run flutter_ai_testing:keys check            # fail on keys that look like contact data
+dart run flutter_ai_testing:keys index            # write docs/test-keys.md
+```
 
 ## Rules the tools are built around
 
 - **The normal path first.** A test reaches every page by tapping, like a user. `uiOnly…`
   shortcuts are for checking one page's layout only, and a report must say when one was used.
-- **No personal data.** Tools return route names, keys, booleans and codes only. Marionette log
-  collection stays off (debug output often has personal data). Keys must not contain personal
-  data (`check_test_keys.py` fails on contact-like keys). Use made-up test accounts, passed in the
-  conversation, never written to a file.
-- **Test hosts only.** `DEFINE_MUST_CONTAIN` makes the launch script refuse a non-test host.
-- **Don't use Maestro's cloud tools**: they upload the app and its screens.
+- **No personal data.** Tools return route names, keys, booleans and codes. App logs go to
+  `.marionette/<device>.log` and are never returned; Marionette's `get_logs` is not exposed.
+  Use made-up test accounts, passed in the conversation, never written to a file.
+- **Debug and profile builds only.** `runWithAiTesting` throws in release mode, and nothing in
+  `lib/` imports it, so release builds don't contain it.
+
+## Limits
+
+- Only the Flutter UI: OS permission dialogs and the keyboard are native. Permissions listed in
+  `ai-testing.conf` are granted for you (Android after install, iOS simulator before launch).
+  For other native UI use a tool such as [Maestro](https://maestro.mobile.dev).
+- The app must be in the foreground: in the background it draws no frames.
+- On Android, Back on the first page closes the app.
 
 ## Develop
 
 ```sh
-flutter pub get && flutter analyze && flutter test       # the library
-cd example && flutter analyze                            # the example
-bash -n install.sh scripts/marionette-run.sh             # script syntax
+flutter pub get && flutter analyze && flutter test
+cd example && flutter pub get && flutter analyze marionette lib
 ```
 
-To try it live: `cd example && bash scripts/ai-testing/marionette-run.sh <device-id>`, then
-`python3 scripts/ai-testing/marionette_cli.py <device-id> where`.
-
-Version: see `VERSION`. Bump it when the installed copies change.
+`example/` depends on the package by path. To test the server for real, open `example/` in an
+MCP client with an emulator running and drive it (`start_app`, taps, `where_am_i`, `stop_app`).

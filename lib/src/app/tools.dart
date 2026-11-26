@@ -1,13 +1,3 @@
-// Installed from flutter-ai-testing 0.1.0. Don't edit this copy: change
-// lib/flutter_ai_testing.dart in flutter-ai-testing and run install.sh again.
-
-// flutter_ai_testing: app tools an AI agent uses, through Marionette, to test a
-// Flutter app the way a person would.
-//
-// Apps get a copy of this file (install.sh puts it at marionette/ai_testing.dart)
-// instead of a package dependency, so CI never needs access to this repo.
-// Don't edit the copy: change it here and run install.sh again.
-
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:marionette_flutter/marionette_flutter.dart';
@@ -20,7 +10,7 @@ import 'package:marionette_flutter/marionette_flutter.dart';
 class AiTestingConfig {
   const AiTestingConfig({
     required this.namespace,
-    required this.routeStack,
+    this.routeStack = _noStack,
     this.location,
     this.isSignedIn,
     this.appState,
@@ -30,18 +20,18 @@ class AiTestingConfig {
     this.uiOnlyScreens = const {},
     this.screensNeedSignIn = true,
     this.screenKeySuffix = '_screen',
-    this.loadingWidgetTypes = const {
-      'CircularProgressIndicator',
-      'CupertinoActivityIndicator',
-    },
+    this.loadingWidgetTypes = const {'CircularProgressIndicator', 'CupertinoActivityIndicator'},
     this.maxSettle = const Duration(seconds: 2),
   });
 
   /// Tool name prefix, for example `myapp` gives `myapp.whereAmI`.
   final String namespace;
 
-  /// The open pages, bottom first, by name.
+  /// The open pages, bottom first, by name. For go_router use
+  /// [GoRouterTools.stack]. Without it, `visibleScreens` still shows the pages.
   final List<String> Function() routeStack;
+
+  static List<String> _noStack() => const [];
 
   /// The current location (path), if the app has one.
   final String Function()? location;
@@ -107,8 +97,7 @@ ScreenScan scanScreen(AiTestingConfig config) {
       screens.add(key.value);
     }
     final type = widget.runtimeType.toString();
-    if (!type.startsWith('_') &&
-        (type.endsWith('Dialog') || type.endsWith('BottomSheet'))) {
+    if (!type.startsWith('_') && (type.endsWith('Dialog') || type.endsWith('BottomSheet'))) {
       dialogs.add(type);
     }
     if (config.loadingWidgetTypes.contains(type)) loading = true;
@@ -198,10 +187,7 @@ void registerAiTestingTools(AiTestingConfig config) {
           'a normal test case: navigate by tapping instead.',
       inputSchema: ExtensionInputSchema(
         properties: {
-          'name': ExtensionParam.string(
-            description: 'Route name.',
-            enumValues: config.uiOnlyRoutes,
-          ),
+          'name': ExtensionParam.string(description: 'Route name.', enumValues: config.uiOnlyRoutes),
           'mode': ExtensionParam.string(
             description:
                 'push keeps the current page under it (default); go '
@@ -215,10 +201,7 @@ void registerAiTestingTools(AiTestingConfig config) {
       callback: (params) async {
         final name = params['name'] ?? '';
         if (!config.uiOnlyRoutes.contains(name)) {
-          return MarionetteExtensionResult.error(
-            1,
-            'Unknown route "$name". Supported: ${config.uiOnlyRoutes}',
-          );
+          return MarionetteExtensionResult.error(1, 'Unknown route "$name". Supported: ${config.uiOnlyRoutes}');
         }
         openRoute(name, replace: params['mode'] == 'go');
         return answer();
@@ -254,10 +237,7 @@ void registerAiTestingTools(AiTestingConfig config) {
         }
         final signedIn = config.isSignedIn?.call() ?? true;
         if (config.screensNeedSignIn && !signedIn) {
-          return MarionetteExtensionResult.error(
-            2,
-            'Sign in first: these screens need a session.',
-          );
+          return MarionetteExtensionResult.error(2, 'Sign in first: these screens need a session.');
         }
         open();
         return answer();
