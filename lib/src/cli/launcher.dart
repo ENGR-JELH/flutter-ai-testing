@@ -56,24 +56,38 @@ class Launcher {
   List<String> flutterCommand() {
     final env = Platform.environment;
     if ((env['FLUTTER_BIN'] ?? '').isNotEmpty) return [env['FLUTTER_BIN']!];
-    if (File('${appDir.path}/.fvmrc').existsSync() && which('fvm') != null) return ['fvm', 'flutter'];
+    final fvm = which('fvm');
+    if (File('${appDir.path}/.fvmrc').existsSync() && fvm != null) return [fvm, 'flutter'];
     final version = conf.get('FLUTTER_VERSION');
-    final home = env['HOME'] ?? '';
     if (version.isNotEmpty) {
-      final pinned = File('$home/fvm/versions/$version/bin/flutter');
-      if (pinned.existsSync()) return [pinned.path];
+      for (final root in fvmVersionRoots()) {
+        final pinned = File('${root.path}/$version/bin/$flutterExe');
+        if (pinned.existsSync()) return [pinned.path];
+      }
     }
     final onPath = which('flutter');
     if (onPath != null) return [onPath];
     final newest = newestFvmBin();
-    if (newest != null) return ['$newest/flutter'];
+    if (newest != null) return ['$newest/$flutterExe'];
     throw LaunchError('flutter not found: put it on PATH, or set FLUTTER_BIN or FLUTTER_VERSION');
   }
 
-  String get adb =>
-      which('adb') ??
-      '${Platform.environment['ANDROID_HOME'] ?? '${Platform.environment['HOME']}/Library/Android/sdk'}'
-          '/platform-tools/adb';
+  /// adb on PATH, else in ANDROID_HOME / ANDROID_SDK_ROOT, else in the
+  /// Android Studio default SDK folder for this OS.
+  String get adb {
+    final onPath = which('adb');
+    if (onPath != null) return onPath;
+    final env = Platform.environment;
+    final sdk =
+        env['ANDROID_HOME'] ??
+        env['ANDROID_SDK_ROOT'] ??
+        (Platform.isWindows
+            ? '${env['LOCALAPPDATA']}\\Android\\Sdk'
+            : Platform.isMacOS
+            ? '$homeDir/Library/Android/sdk'
+            : '$homeDir/Android/Sdk');
+    return '$sdk/platform-tools/adb${Platform.isWindows ? '.exe' : ''}';
+  }
 
   Future<DeviceKind> platformOf(String device) async {
     try {
@@ -140,7 +154,7 @@ class Launcher {
     final log = conf.logFile(device).openWrite();
     log.writeln('using ${command.join(' ')}');
 
-    final process = await Process.start(command.first, [
+    final process = await Process.start(runInShell: needsShell(command.first), command.first, [
       ...command.skip(1),
       'run',
       '-t',
@@ -206,32 +220,58 @@ String? knownProblem(File log) {
   return null;
 }
 
-/// The executable on PATH, or null.
+/// The user's home folder (HOME, or USERPROFILE on Windows).
+String get homeDir => Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '';
+
+/// `flutter.bat` on Windows, `flutter` elsewhere.
+String get flutterExe => Platform.isWindows ? 'flutter.bat' : 'flutter';
+
+/// Windows starts `.bat` / `.cmd` files only through the shell.
+bool needsShell(String executable) =>
+    Platform.isWindows && RegExp(r'\.(bat|cmd)$', caseSensitive: false).hasMatch(executable);
+
+/// The executable on PATH, or null. On Windows also tries the PATHEXT
+/// extensions (`flutter.bat`, `adb.exe`, ...).
 String? which(String name) {
-  final path = Platform.environment['PATH'] ?? '';
-  for (final dir in path.split(Platform.isWindows ? ';' : ':')) {
+  final env = Platform.environment;
+  final exts = Platform.isWindows
+      ? ['', ...(env['PATHEXT'] ?? '.EXE;.BAT;.CMD').split(';').where((e) => e.isNotEmpty)]
+      : [''];
+  for (final dir in (env['PATH'] ?? '').split(Platform.isWindows ? ';' : ':')) {
     if (dir.isEmpty) continue;
-    final f = File('$dir/$name');
-    if (f.existsSync()) return f.path;
+    for (final ext in exts) {
+      final f = File('$dir${Platform.pathSeparator}$name$ext');
+      if (f.existsSync()) return f.path;
+    }
   }
   return null;
 }
 
+/// Folders fvm keeps Flutter versions in: `~/fvm/versions`, and on Windows
+/// also `%LOCALAPPDATA%\fvm\versions`. FVM_CACHE_PATH first when set.
+List<Directory> fvmVersionRoots() {
+  final env = Platform.environment;
+  return [
+    if ((env['FVM_CACHE_PATH'] ?? '').isNotEmpty) Directory('${env['FVM_CACHE_PATH']}/versions'),
+    Directory('$homeDir/fvm/versions'),
+    if (Platform.isWindows && env['LOCALAPPDATA'] != null) Directory('${env['LOCALAPPDATA']}/fvm/versions'),
+  ].where((d) => d.existsSync()).toList();
+}
+
 /// The bin folder of the highest numbered fvm Flutter (channels like `stable` last).
 String? newestFvmBin() {
-  final root = Directory('${Platform.environment['HOME']}/fvm/versions');
-  if (!root.existsSync()) return null;
   List<int> nums(String name) => name.split('.').map(int.tryParse).whereType<int>().toList();
   final versions =
-      root.listSync().whereType<Directory>().where((d) => File('${d.path}/bin/flutter').existsSync()).toList()
-        ..sort((a, b) {
-          final x = nums(a.uri.pathSegments.where((s) => s.isNotEmpty).last);
-          final y = nums(b.uri.pathSegments.where((s) => s.isNotEmpty).last);
-          for (var i = 0; i < x.length && i < y.length; i++) {
-            if (x[i] != y[i]) return x[i].compareTo(y[i]);
-          }
-          return x.length.compareTo(y.length);
-        });
+      [
+        for (final root in fvmVersionRoots()) ...root.listSync().whereType<Directory>(),
+      ].where((d) => File('${d.path}/bin/$flutterExe').existsSync()).toList()..sort((a, b) {
+        final x = nums(a.uri.pathSegments.where((s) => s.isNotEmpty).last);
+        final y = nums(b.uri.pathSegments.where((s) => s.isNotEmpty).last);
+        for (var i = 0; i < x.length && i < y.length; i++) {
+          if (x[i] != y[i]) return x[i].compareTo(y[i]);
+        }
+        return x.length.compareTo(y.length);
+      });
   return versions.isEmpty ? null : '${versions.last.path}/bin';
 }
 

@@ -72,6 +72,13 @@ Next:
      and key the controls tests use. Then: dart run flutter_ai_testing:keys index
   3. Restart your agent so it loads the MCP server, then ask it to list_devices
      and start_app.''');
+  if (Platform.isWindows) {
+    stdout.writeln('''
+
+Windows: if your agent can't start the server ("dart" not found / spawn error),
+register it for yourself through cmd instead of editing the shared .mcp.json:
+  claude mcp add flutter-ai-testing --scope local -- cmd /c dart run flutter_ai_testing:mcp''');
+  }
 }
 
 Future<Directory> _templates() async {

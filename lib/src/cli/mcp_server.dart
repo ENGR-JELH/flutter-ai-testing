@@ -124,7 +124,7 @@ class Marionette {
         return [Platform.resolvedExecutable, '--packages=${config.toFilePath()}', bin.path];
       }
     }
-    final global = which('marionette_mcp') ?? '${Platform.environment['HOME']}/.pub-cache/bin/marionette_mcp';
+    final global = which('marionette_mcp') ?? '$homeDir/.pub-cache/bin/marionette_mcp';
     if (File(global).existsSync()) return [global];
     throw ToolError('marionette_mcp not found: add flutter_ai_testing to dev_dependencies and run pub get');
   }
@@ -213,7 +213,7 @@ class McpServer {
 
   Directory appDirArg(Map<String, Object?> args) {
     final raw = args['app_dir'] as String? ?? Platform.environment['AI_TESTING_APP_DIR'] ?? Directory.current.path;
-    final dir = findAppDir(raw.replaceFirst(RegExp(r'^~'), Platform.environment['HOME'] ?? '~'));
+    final dir = findAppDir(raw.replaceFirst(RegExp(r'^~'), homeDir));
     if (dir == null) throw ToolError('no Flutter app (pubspec.yaml) at or above $raw');
     return dir;
   }
@@ -241,7 +241,7 @@ class McpServer {
   Future<String> listDevices(Map<String, Object?> args) async {
     final dir = findAppDir() ?? Directory.current;
     final command = Launcher(AiTestingConf.load(dir)).flutterCommand();
-    final r = await Process.run(command.first, [
+    final r = await Process.run(runInShell: needsShell(command.first), command.first, [
       ...command.skip(1),
       'devices',
       '--machine',
