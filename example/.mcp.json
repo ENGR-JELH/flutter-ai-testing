@@ -1,12 +1,18 @@
 {
   "mcpServers": {
-    "marionette": {
-      "command": "marionette_mcp",
-      "args": []
+    "flutter-ai-testing": {
+      "command": "dart",
+      "args": [
+        "run",
+        "flutter_ai_testing:mcp"
+      ]
     },
     "maestro": {
       "command": "maestro",
-      "args": ["mcp", "--no-viewer"]
+      "args": [
+        "mcp",
+        "--no-viewer"
+      ]
     }
   }
 }

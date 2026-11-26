@@ -5,3 +5,6 @@ analyzer:
     # Its own package, analyzed on its own.
     - example/**
     - build/**
+
+formatter:
+  page_width: 120
